@@ -62,7 +62,8 @@ VOICES = [
     {"id": "dylan",    "name": "迪兰",     "note": "北京话男"},
 ]
 for _v in VOICES:
-    _v["avatar"] = "/characters/face_%s.png" % _v["id"]
+    _v["avatar"] = "/characters/face_%s.png" % _v["id"]      # 小头像
+    _v["big"] = "/characters/official_%s.png" % _v["id"]     # 左边那张大半身像
 VOICE_IDS = {v["id"] for v in VOICES}
 
 SYSTEM = (
