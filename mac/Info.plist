@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key>            <string>Local Chatter</string>
+  <key>CFBundleDisplayName</key>     <string>Local Chatter</string>
+  <key>CFBundleIdentifier</key>      <string>local.dajie.localchatter</string>
+  <key>CFBundleExecutable</key>      <string>VoiceAssistant</string>
+  <key>CFBundleIconFile</key>        <string>AppIcon</string>
+  <key>CFBundlePackageType</key>     <string>APPL</string>
+  <key>CFBundleShortVersionString</key> <string>1.0</string>
+  <key>CFBundleVersion</key>         <string>1</string>
+  <key>LSMinimumSystemVersion</key>  <string>12.0</string>
+  <key>NSHighResolutionCapable</key> <true/>
+  <key>NSSupportsAutomaticGraphicsSwitching</key> <true/>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>说话的时候要用麦克风。录音只送到这台机器上的本地服务，不出网。</string>
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <key>NSAllowsLocalNetworking</key><true/>
+  </dict>
+</dict>
+</plist>
