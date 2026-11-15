@@ -56,13 +56,13 @@
   button.stop { background: #d0443a; }
   button.ghost { background: transparent; border: 1px solid #3a3a48; color: #b9b9c8; font-weight: 500; padding: 14px 26px; }
   button:disabled { opacity: .45; cursor: default; }
-  #hint { text-align: center; font-size: 15px; color: #77778a; padding-bottom: 16px; }
-  #main { flex: 1; display: flex; min-height: 0; }
+  #hint { text-align: center; font-size: 14px; color: #77778a; padding: 0 0 10px; }
+  #main { flex: 1; display: flex; flex-direction: column; min-height: 0; }
   #stage {
-    flex: 0 0 320px; display: flex; align-items: center; justify-content: center;
-    padding: 8px 4px 30px;
+    flex: 0 0 auto; display: flex; align-items: center; justify-content: center;
+    padding: 2px 0 8px;
   }
-  #face { position: relative; width: 280px; height: 280px; }
+  #face { position: relative; width: 258px; height: 258px; }
   #portrait {
     width: 100%; height: 100%; object-fit: cover; display: block;
     border-radius: 14px; box-shadow: 0 14px 44px rgba(0,0,0,.55);
