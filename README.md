@@ -26,13 +26,14 @@
 ```sh
 # 先装 Ollama：https://ollama.com/download
 
-ollama pull qwen3:4b-instruct    # 小机器（8G 内存也跑得动），约 2.5G，快
-ollama pull qwen3:8b             # 中等
-ollama pull qwen3:30b-a3b        # 大内存（32G+）
+ollama pull qwen3:8b             # 大多数机器都跑得动
+ollama pull qwen3:30b-a3b        # 内存大（32G+）就上这个
 ```
 
-**别照搬别人的模型名。** 这个程序要的是「说得快」，不是「答得深」——
-一个 4B 的小模型，聊起天来比 30B 舒服得多，因为它不用你等。
+**按你自己电脑能带得动的来就行。** 8B 能打，30B 也能打，程序不挑模型。
+
+- 大一些：懂得多、答得深，慢一点
+- 小一些：快，浅
 
 > 作者本机用的是 `qwen3.6-35b-a3b-q4:64k`（64G 内存的机器）。
 
