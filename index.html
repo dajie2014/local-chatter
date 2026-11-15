@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Local Chatter</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: flex; flex-direction: column;
+    background: #121218; color: #e9e9ef;
+    font: 20px/1.6 -apple-system, "PingFang SC", "Helvetica Neue", sans-serif;
+  }
+  header { padding: 18px 24px 10px; display: flex; align-items: baseline; gap: 14px; }
+  h1 { font-size: 24px; margin: 0; font-weight: 650; letter-spacing: .02em; }
+  #status { font-size: 15px; color: #8b8b9a; }
+  #modelSel, #micSel {
+    appearance: none;
+    background: #1d1d27; color: #cfcfdd; border: 1px solid #33333f;
+    border-radius: 10px; padding: 6px 12px; font: inherit; font-size: 15px; cursor: pointer;
+  }
+  #micSel { margin-left: auto; max-width: 20em; }
+  #modelSel { margin-left: 0; max-width: 22em; }
+  button.mini {
+    font-size: 15px; font-weight: 500; padding: 7px 14px;
+    background: #232332; border: 1px solid #3a3a48; color: #cfcfdd;
+  }
+  #log {
+    flex: 1; overflow-y: auto; padding: 10px 24px 20px;
+    display: flex; flex-direction: column; gap: 14px;
+  }
+  .msg { max-width: 46em; padding: 12px 18px; border-radius: 16px; white-space: pre-wrap; }
+  .me { align-self: flex-end; background: #2b3a55; }
+  .ai { align-self: flex-start; background: #232330; }
+  .ai.streaming::after { content: "▍"; animation: blink 1s infinite; color: #7aa2ff; }
+  @keyframes blink { 50% { opacity: 0; } }
+  footer {
+    display: flex; gap: 12px; align-items: flex-end; justify-content: center;
+    padding: 14px 24px 22px; border-top: 1px solid #23232e;
+  }
+  #input {
+    flex: 1; max-width: 780px; min-height: 64px; max-height: 180px;
+    background: #1b1b26; color: #e9e9ef; border: 1px solid #35354a;
+    border-radius: 14px; padding: 12px 16px; font: inherit; font-size: 19px;
+    line-height: 1.5; resize: none; outline: none;
+  }
+  #input:focus { border-color: #3b6ef5; }
+  #input::placeholder { color: #6d6d80; }
+  button {
+    font: inherit; font-size: 22px; font-weight: 600;
+    border: 0; border-radius: 999px; padding: 16px 38px; cursor: pointer;
+    color: #fff; background: #3b6ef5; transition: transform .08s, background .15s;
+  }
+  button:active { transform: scale(.97); }
+  button.stop { background: #d0443a; }
+  button.ghost { background: transparent; border: 1px solid #3a3a48; color: #b9b9c8; font-weight: 500; padding: 14px 26px; }
+  button:disabled { opacity: .45; cursor: default; }
+  #hint { text-align: center; font-size: 15px; color: #77778a; padding-bottom: 16px; }
+  #cast {
+    display: flex; gap: 14px; justify-content: center; align-items: flex-start;
+    padding: 6px 24px 0; overflow-x: auto;
+  }
+  .castItem {
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    cursor: pointer; opacity: .5; transition: opacity .15s; flex: 0 0 auto;
+  }
+  .castItem img {
+    width: 54px; height: 54px; border-radius: 50%; display: block;
+    border: 2px solid transparent;
+  }
+  .castItem span { font-size: 13px; color: #a9a9ba; white-space: nowrap; }
+  .castItem.on { opacity: 1; }
+  .castItem.on img { border-color: #3b6ef5; }
+  .castItem.on span { color: #dfe3ff; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Local Chatter</h1>
+  <button id="micBtn" class="mini" hidden title="先点这里，浏览器才会把麦克风列表交出来">🎤 开麦克风</button>
+  <select id="micSel" hidden title="换一个麦克风">
+    <option value="">麦克风（先点左边「开麦克风」）</option>
+  </select>
+  <select id="modelSel" title="换一个脑子">
+    <option value="">（本机模型）</option>
+  </select>
+  <button id="fresh" class="mini" title="清空这段，从头开始">＋ 新对话</button>
+  <span id="status">空闲</span>
+</header>
+<div id="log"></div>
+<div id="cast"></div>
+<footer>
+  <textarea id="input" rows="2" placeholder="打字，或者用听写说进来（回车发送）"></textarea>
+  <button id="send">发送</button>
+  <button id="stopBtn" class="ghost" disabled>■ 打断</button>
+</footer>
+<div id="hint">打字或听写，回车发送（Shift+回车换行）。回答会边生成边念出来。</div>
+
+<script>
+function plog(what, extra) {
+  try {
+    fetch('/api/log', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ what: what, extra: String(extra === undefined ? '' : extra) }) });
+  } catch (e) {}
+}
+window.onerror = (m, src, line, col) => { plog('js-error', m + ' @' + line + ':' + col); return false; };
+window.addEventListener('unhandledrejection', (e) => plog('promise-reject', (e.reason && e.reason.message) || e.reason));
+window.addEventListener('pagehide', () => plog('pagehide'));
+window.addEventListener('pageshow', () => plog('pageshow'));
+
+const $ = (id) => document.getElementById(id);
+const logEl = $('log'), statusEl = $('status'), stopBtn = $('stopBtn');
+const inputEl = $('input'), sendBtn = $('send');
+const modelSel = $('modelSel');
+// 后端说的默认模型（VA_MODEL）优先；下拉框跟着它走
+let lastStep = '刚打开';
+let currentVoice = localStorage.getItem('lc.voice') || 'vivian';
+const castEl = $('cast');
+
+function renderCast(list) {
+  castEl.innerHTML = '';
+  (list || []).forEach(v => {
+    const b = document.createElement('div');
+    b.className = 'castItem' + (v.id === currentVoice ? ' on' : '');
+    b.title = v.name + (v.note ? ' · ' + v.note : '');
+    const im = document.createElement('img');
+    im.src = v.avatar; im.alt = v.name;
+    const sp = document.createElement('span');
+    sp.textContent = v.name;
+    b.appendChild(im); b.appendChild(sp);
+    b.onclick = () => {
+      currentVoice = v.id;
+      try { localStorage.setItem('lc.voice', v.id); } catch (e) {}
+      Array.from(castEl.children).forEach(c => c.classList.remove('on'));
+      b.classList.add('on');
+      setStatus('嗓子换成 ' + v.name);
+      if (currentSrc) { try { currentSrc.stop(); } catch (e) {} currentSrc = null; }
+    };
+    castEl.appendChild(b);
+  });
+}
+
+fetch('/api/ping').then(r => r.json()).then(j => {
+  // 模型不是写死的：本机 Ollama 里装了什么就列什么，各人挑适合自己的
+  if (j.models && j.models.length) {
+    modelSel.innerHTML = '';
+    j.models.forEach(m => {
+      const o = document.createElement('option');
+      o.value = m.model;
+      o.textContent = m.model;
+      modelSel.appendChild(o);
+    });
+    if (j.model) modelSel.value = j.model;
+  }
+  renderCast(j.voices);
+  if (j.autotest) setTimeout(autoTest, 800);
+}).catch(() => {});
+modelSel.onchange = () => setStatus('换脑中，第一次要几秒…');
+
+// ── 麦克风：可以指定用哪一个，记在本机 ──
+const micSel = $('micSel');
+let micDeviceId = localStorage.getItem('voice-assistant.mic') || '';
+
+async function refreshMics() {
+  let mics = [];
+  try {
+    const list = await navigator.mediaDevices.enumerateDevices();
+    mics = list.filter(d => d.kind === 'audioinput');
+  } catch (e) { return; }
+  // 没授权过之前，浏览器只给空名字，给了也没法认
+  if (!mics.length || mics.every(d => !d.label)) {
+    micSel.innerHTML = '';
+    const o = document.createElement('option');
+    o.value = ''; o.textContent = '麦克风（先点左边「开麦克风」）';
+    micSel.appendChild(o);
+    return;
+  }
+  micSel.innerHTML = '';
+  const def = document.createElement('option');
+  def.value = ''; def.textContent = '系统默认';
+  micSel.appendChild(def);
+  mics.forEach(d => {
+    const o = document.createElement('option');
+    o.value = d.deviceId;
+    o.textContent = d.label || '麦克风';
+    micSel.appendChild(o);
+  });
+  micSel.value = (micDeviceId && mics.some(d => d.deviceId === micDeviceId)) ? micDeviceId : '';
+}
+micSel.onchange = () => {
+  micDeviceId = micSel.value;
+  try {
+    if (micDeviceId) localStorage.setItem('voice-assistant.mic', micDeviceId);
+    else localStorage.removeItem('voice-assistant.mic');
+  } catch (e) {}
+  if (recorder && recorder.state === 'recording') stopRec();
+  setStatus(micDeviceId ? '已换成你选的麦克风' : '用系统默认麦克风');
+};
+if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
+  navigator.mediaDevices.addEventListener('devicechange', refreshMics);
+}
+refreshMics();
+
+// 浏览器不授权就不肯报麦克风名字 —— 这个按钮专门用来「要权限 + 列设备」
+const micBtn = $('micBtn');
+micBtn.onclick = async () => {
+  plog('click-mic');
+  micBtn.disabled = true;
+  micBtn.textContent = '🎤 等浏览器弹框…';
+  setStatus('浏览器会在上方/旁边问一句，点「允许」');
+  let s = null;
+  try {
+    s = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (e) {
+    setStatus('没拿到麦克风权限：' + e.message);
+    micBtn.disabled = false;
+    micBtn.textContent = '🎤 开麦克风';
+    return;
+  }
+  s.getTracks().forEach(t => t.stop());
+  await refreshMics();
+  const n = Math.max(0, micSel.options.length - 1);
+  micBtn.disabled = false;
+  micBtn.textContent = '🎤 重新列一次';
+  setStatus(n > 0 ? ('有 ' + n + ' 只麦克风，在右边挑') : '这一只都列不出来，可能系统没接麦克风');
+};
+
+let recorder = null, mediaStream = null, chunks = [];
+let abortCtl = null, playQueue = [], playing = false;
+
+function setStatus(t) { statusEl.textContent = t; lastStep = t; }
+function addMsg(role, text) {
+  const d = document.createElement('div');
+  d.className = 'msg ' + role;
+  d.textContent = text;
+  logEl.appendChild(d);
+  logEl.scrollTop = logEl.scrollHeight;
+  return d;
+}
+
+// 自检：不需要人说话，自动录 2.5 秒走完整条链路（服务端 /api/ping 的 autotest 开关控制）
+async function autoTest() {
+  plog('autotest-start');
+  addMsg('me', '你好');
+  await ask('你好');
+  plog('autotest-done');
+}
+
+async function startRec() {
+  if (recorder) return;
+  plog('rec-start');
+  const plain = { echoCancellation: true, noiseSuppression: true };
+  try {
+    // 选了具体麦克风就钉死用它；没选就系统默认
+    mediaStream = await navigator.mediaDevices.getUserMedia({
+      audio: micDeviceId ? Object.assign({ deviceId: { exact: micDeviceId } }, plain) : plain
+    });
+  } catch (e) {
+    // 选过的那只不在了（拔掉/系统里改名）→ 退回默认，并把选择清掉
+    if (micDeviceId) {
+      micDeviceId = '';
+      try { localStorage.removeItem('voice-assistant.mic'); } catch (e2) {}
+      micSel.value = '';
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({ audio: plain });
+        setStatus('刚才那只麦克风找不到，先用了系统默认');
+      } catch (e3) {
+        setStatus('拿不到麦克风：' + e3.message);
+        return;
+      }
+    } else {
+      setStatus('拿不到麦克风：' + e.message);
+      return;
+    }
+  }
+  refreshMics();
+  const types = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'];
+  const mime = types.find(t => MediaRecorder.isTypeSupported(t)) || '';
+  chunks = [];
+  recorder = new MediaRecorder(mediaStream, mime ? { mimeType: mime } : {});
+  recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+  recorder.onstop = async () => {
+    mediaStream.getTracks().forEach(t => t.stop());
+    mediaStream = null;
+    const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
+    plog('rec-stop', blob.size + 'B ' + (recorder ? recorder.mimeType : ''));
+    recorder = null;
+    if (blob.size < 2000) { setStatus('太短了，再说一次'); sendBtn.disabled = false; return; }
+    await roundTrip(blob);
+  };
+  recorder.start();
+  plog('recording', mime || '默认格式');
+  setStatus('录音中…');
+}
+
+function stopRec() {
+  if (recorder && recorder.state === 'recording') { recorder.stop(); setStatus('处理中…'); }
+}
+
+async function roundTrip(blob) {
+  sendBtn.disabled = true;
+  setStatus('识别中…');
+  plog('stt-start', blob.size + 'B');
+  let text = '';
+  try {
+    const r = await fetch('/api/stt', { method: 'POST', body: blob });
+    const j = await r.json();
+    text = (j.text || '').trim();
+  } catch (e) { setStatus('识别失败：' + e.message); sendBtn.disabled = false; return; }
+  plog('stt-done', text);
+  if (!text) { setStatus('没听清，再说一次'); sendBtn.disabled = false; return; }
+  addMsg('me', text);
+  await ask(text);
+}
+
+async function ask(text) {
+  abortCtl = new AbortController();
+  stopBtn.disabled = false;
+  setStatus('思考中…');
+  plog('chat-start');
+  const bubble = addMsg('ai', '');
+  bubble.classList.add('streaming');
+
+  let buf = '';       // 还没切出去的半句
+  let full = '';
+  let speechQ = [];
+  playing = false; playQueue = [];
+
+  const speak = (sentence) => {
+    const p = fetch('/api/tts', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: sentence, voice: currentVoice }), signal: abortCtl.signal
+    }).then(r => r.ok ? r.blob() : null).catch(() => null);
+    playQueue.push(p);
+    pump();
+  };
+
+  const pump = async () => {
+    if (playing) return;
+    playing = true;
+    while (playQueue.length) {
+      const p = playQueue.shift();
+      const blob = await p;
+      if (!blob || !blob.size) continue;
+      if (abortCtl && abortCtl.signal.aborted) break;
+      await playBlob(blob);
+    }
+    playing = false;
+  };
+
+  const pushText = (piece) => {
+    full += piece;
+    bubble.textContent = full;
+    logEl.scrollTop = logEl.scrollHeight;
+    buf += piece;
+    // 按句切：句末标点，或太长时按逗号切
+    let m;
+    const re = /[。！？!?；;\n]/g;
+    let last = 0;
+    while ((m = re.exec(buf)) !== null) {
+      const s = buf.slice(last, m.index + 1).trim();
+      if (s) speak(s);
+      last = m.index + 1;
+    }
+    buf = buf.slice(last);
+    if (buf.length > 42) {
+      const k = buf.lastIndexOf('，', 40);
+      const cut = k > 20 ? k + 1 : 42;
+      const s = buf.slice(0, cut).trim();
+      if (s) speak(s);
+      buf = buf.slice(cut);
+    }
+  };
+
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: [{ role: 'user', content: text }], model: modelSel.value }),
+      signal: abortCtl.signal
+    });
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    setStatus('说话中…');
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      pushText(dec.decode(value, { stream: true }));
+    }
+  } catch (e) {
+    if (e.name !== 'AbortError') { bubble.textContent = full + '〔中断：' + e.message + '〕'; }
+  } finally {
+    bubble.classList.remove('streaming');
+    if (buf.trim()) speak(buf.trim());
+    buf = '';
+    abortCtl = null;
+    stopBtn.disabled = true;
+    sendBtn.disabled = false;
+    inputEl.focus();
+
+// 每段对话都是独立的：清空屏幕就完事（本来也不存历史）
+const freshBtn = $('fresh');
+freshBtn.onclick = () => {
+  plog('fresh');
+  if (abortCtl) { try { abortCtl.abort(); } catch (e) {} abortCtl = null; }
+  playQueue = [];
+  if (currentSrc) { try { currentSrc.stop(); } catch (e) {} currentSrc = null; }
+  logEl.innerHTML = '';
+  stopBtn.disabled = true;
+  sendBtn.disabled = false;
+  setStatus('新的一段');
+  inputEl.focus();
+};
+    setStatus('空闲');
+  }
+}
+
+// 播放：用 Web Audio 解出来再放。
+// 原来用 new Audio(blobURL)，在 WKWebView 里播完会让页面重载（2026-11-15 实测，
+// 日志里 play 之后紧跟一个 pageshow）—— 换成解码成缓冲区就不会碰媒体会话。
+let audioCtx = null, currentSrc = null;
+
+function ctx() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return audioCtx;
+}
+
+async function playBlob(blob) {
+  plog('play', blob.size + 'B');
+  const ac = ctx();
+  if (ac.state === 'suspended') { try { await ac.resume(); } catch (e) {} }
+  let buf = null;
+  try {
+    const ab = await blob.arrayBuffer();
+    plog('play-bytes', ab.byteLength);
+    buf = await ac.decodeAudioData(ab);
+    plog('play-decoded', buf.duration.toFixed(2) + 's ' + buf.sampleRate + 'Hz ' + buf.numberOfChannels + 'ch');
+  } catch (e) {
+    plog('decode-fail', (e && e.message) || e);
+    return;
+  }
+  const src = ac.createBufferSource();
+  src.buffer = buf;
+  src.connect(ac.destination);
+  currentSrc = src;
+  await new Promise((resolve) => {
+    src.onended = () => { plog('play-ended'); currentSrc = null; resolve(); };
+    try { src.start(); plog('play-started'); } catch (e) { plog('play-fail', (e && e.message) || e); resolve(); }
+  });
+}
+
+function interrupt() {
+  if (abortCtl) abortCtl.abort();
+  playQueue = [];
+  if (currentSrc) { try { currentSrc.stop(); } catch (e) {} currentSrc = null; }
+  stopBtn.disabled = true;
+  setStatus('已打断');
+}
+
+function sendText() {
+  const t = (inputEl.value || '').trim();
+  if (!t) return;
+  plog('send', t.slice(0, 40));
+  sendBtn.disabled = true;
+  inputEl.value = '';
+  addMsg('me', t);
+  ask(t);
+}
+
+sendBtn.onclick = () => { plog('click-send'); sendText(); };
+inputEl.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendText(); }
+});
+inputEl.focus();
+
+// 每段对话都是独立的：清空屏幕就完事（本来也不存历史）
+const freshBtn = $('fresh');
+freshBtn.onclick = () => {
+  plog('fresh');
+  if (abortCtl) { try { abortCtl.abort(); } catch (e) {} abortCtl = null; }
+  playQueue = [];
+  if (currentSrc) { try { currentSrc.stop(); } catch (e) {} currentSrc = null; }
+  logEl.innerHTML = '';
+  stopBtn.disabled = true;
+  sendBtn.disabled = false;
+  setStatus('新的一段');
+  inputEl.focus();
+};
+stopBtn.onclick = interrupt;
+
+</script>
+</body>
+</html>
