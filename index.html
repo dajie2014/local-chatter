@@ -8,7 +8,7 @@
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
   body {
-    margin: 0; min-height: 100vh; display: flex; flex-direction: column;
+    margin: 0; height: 100vh; overflow: hidden; display: flex; flex-direction: column;
     background: #121218; color: #e9e9ef;
     font: 20px/1.6 -apple-system, "PingFang SC", "Helvetica Neue", sans-serif;
   }
@@ -57,6 +57,26 @@
   button.ghost { background: transparent; border: 1px solid #3a3a48; color: #b9b9c8; font-weight: 500; padding: 14px 26px; }
   button:disabled { opacity: .45; cursor: default; }
   #hint { text-align: center; font-size: 15px; color: #77778a; padding-bottom: 16px; }
+  #main { flex: 1; display: flex; min-height: 0; }
+  #stage {
+    flex: 0 0 320px; display: flex; align-items: center; justify-content: center;
+    padding: 8px 4px 30px;
+  }
+  #face { position: relative; width: 280px; height: 280px; }
+  #portrait {
+    width: 100%; height: 100%; object-fit: cover; display: block;
+    border-radius: 14px; box-shadow: 0 14px 44px rgba(0,0,0,.55);
+    transition: transform .09s ease-out;
+  }
+  /* 说话时张开的嘴：只有出声才显出来，所以位置差一点也不碍眼 */
+  #mouth {
+    position: absolute; left: 50%; top: 47%; transform: translate(-50%, -50%);
+    width: 20px; height: 4px; border-radius: 50%;
+    background: rgba(48, 12, 20, .92); filter: blur(.6px);
+    opacity: 0; transition: opacity .1s;
+    pointer-events: none;
+  }
+  #chat { flex: 1; display: flex; flex-direction: column; min-width: 0; }
   #cast {
     display: flex; gap: 14px; justify-content: center; align-items: flex-start;
     padding: 6px 24px 0; overflow-x: auto;
@@ -88,14 +108,24 @@
   <button id="fresh" class="mini" title="清空这段，从头开始">＋ 新对话</button>
   <span id="status">空闲</span>
 </header>
-<div id="log"></div>
-<div id="cast"></div>
-<footer>
+<div id="main">
+  <aside id="stage">
+    <div id="face">
+      <img id="portrait" alt="">
+      <div id="mouth"></div>
+    </div>
+  </aside>
+  <section id="chat">
+    <div id="log"></div>
+    <div id="cast"></div>
+    <footer>
   <textarea id="input" rows="2" placeholder="打字，或者用听写说进来（回车发送）"></textarea>
   <button id="send">发送</button>
-  <button id="stopBtn" class="ghost" disabled>■ 打断</button>
-</footer>
-<div id="hint">打字或听写，回车发送（Shift+回车换行）。回答会边生成边念出来。</div>
+      <button id="stopBtn" class="ghost" disabled>■ 打断</button>
+    </footer>
+    <div id="hint">打字或听写，回车发送（Shift+回车换行）。回答会边生成边念出来。</div>
+  </section>
+</div>
 
 <script>
 function plog(what, extra) {
@@ -112,17 +142,57 @@ window.addEventListener('pageshow', () => plog('pageshow'));
 const $ = (id) => document.getElementById(id);
 const logEl = $('log'), statusEl = $('status'), stopBtn = $('stopBtn');
 const inputEl = $('input'), sendBtn = $('send');
+const portrait = $('portrait'), mouthEl = $('mouth');
 const modelSel = $('modelSel');
 // 后端说的默认模型（VA_MODEL）优先；下拉框跟着它走
 let lastStep = '刚打开';
 let currentVoice = localStorage.getItem('lc.voice') || 'vivian';
 const castEl = $('cast');
 
+function showFace(v) {
+  if (!v) return;
+  portrait.src = v.big || v.avatar;
+  portrait.alt = v.name || '';
+}
+
+// 说话时嘴跟着真声音张合 —— 不是假动画，是从正在播的音频里取音量
+let mouthRAF = null, mouthPeak = 0;
+
+function startMouth(analyser) {
+  stopMouth();
+  const data = new Uint8Array(analyser.fftSize);
+  const tick = () => {
+    analyser.getByteTimeDomainData(data);
+    let sum = 0;
+    for (let i = 0; i < data.length; i++) {
+      const v = (data[i] - 128) / 128;
+      sum += v * v;
+    }
+    const rms = Math.sqrt(sum / data.length);
+    const open = Math.max(0, Math.min(1, rms * 7));
+    if (open > mouthPeak) mouthPeak = open;
+    mouthEl.style.height = (4 + open * 12).toFixed(1) + 'px';
+    mouthEl.style.opacity = open > 0.06 ? '1' : '0';
+    portrait.style.transform = 'scale(' + (1 + open * 0.014).toFixed(3) + ')';
+    mouthRAF = requestAnimationFrame(tick);
+  };
+  tick();
+}
+
+function stopMouth() {
+  if (mouthRAF) cancelAnimationFrame(mouthRAF);
+  mouthRAF = null;
+  mouthEl.style.height = '6px';
+  mouthEl.style.opacity = '0';
+  portrait.style.transform = 'scale(1)';
+}
+
 function renderCast(list) {
   castEl.innerHTML = '';
   (list || []).forEach(v => {
     const b = document.createElement('div');
     b.className = 'castItem' + (v.id === currentVoice ? ' on' : '');
+    if (v.id === currentVoice) showFace(v);
     b.title = v.name + (v.note ? ' · ' + v.note : '');
     const im = document.createElement('img');
     im.src = v.avatar; im.alt = v.name;
@@ -131,6 +201,7 @@ function renderCast(list) {
     b.appendChild(im); b.appendChild(sp);
     b.onclick = () => {
       currentVoice = v.id;
+      showFace(v);
       try { localStorage.setItem('lc.voice', v.id); } catch (e) {}
       Array.from(castEl.children).forEach(c => c.classList.remove('on'));
       b.classList.add('on');
@@ -242,8 +313,9 @@ function addMsg(role, text) {
 // 自检：不需要人说话，自动录 2.5 秒走完整条链路（服务端 /api/ping 的 autotest 开关控制）
 async function autoTest() {
   plog('autotest-start');
-  addMsg('me', '你好');
-  await ask('你好');
+  const q = '用三句话介绍一下你自己，每句短一点。';
+  addMsg('me', q);
+  await ask(q);
   plog('autotest-done');
 }
 
@@ -405,6 +477,7 @@ freshBtn.onclick = () => {
   if (abortCtl) { try { abortCtl.abort(); } catch (e) {} abortCtl = null; }
   playQueue = [];
   if (currentSrc) { try { currentSrc.stop(); } catch (e) {} currentSrc = null; }
+  stopMouth();
   logEl.innerHTML = '';
   stopBtn.disabled = true;
   sendBtn.disabled = false;
@@ -441,10 +514,20 @@ async function playBlob(blob) {
   }
   const src = ac.createBufferSource();
   src.buffer = buf;
-  src.connect(ac.destination);
+  const analyser = ac.createAnalyser();
+  analyser.fftSize = 256;
+  src.connect(analyser);
+  analyser.connect(ac.destination);
   currentSrc = src;
+  startMouth(analyser);
   await new Promise((resolve) => {
-    src.onended = () => { plog('play-ended'); currentSrc = null; resolve(); };
+    src.onended = () => {
+      plog('play-ended', '嘴最大张开 ' + mouthPeak.toFixed(2));
+      mouthPeak = 0;
+      stopMouth();
+      currentSrc = null;
+      resolve();
+    };
     try { src.start(); plog('play-started'); } catch (e) { plog('play-fail', (e && e.message) || e); resolve(); }
   });
 }
@@ -453,6 +536,7 @@ function interrupt() {
   if (abortCtl) abortCtl.abort();
   playQueue = [];
   if (currentSrc) { try { currentSrc.stop(); } catch (e) {} currentSrc = null; }
+  stopMouth();
   stopBtn.disabled = true;
   setStatus('已打断');
 }
@@ -480,6 +564,7 @@ freshBtn.onclick = () => {
   if (abortCtl) { try { abortCtl.abort(); } catch (e) {} abortCtl = null; }
   playQueue = [];
   if (currentSrc) { try { currentSrc.stop(); } catch (e) {} currentSrc = null; }
+  stopMouth();
   logEl.innerHTML = '';
   stopBtn.disabled = true;
   sendBtn.disabled = false;
