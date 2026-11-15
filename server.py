@@ -66,12 +66,32 @@ for _v in VOICES:
     _v["big"] = "/characters/official_%s.png" % _v["id"]     # 左边那张大半身像
 VOICE_IDS = {v["id"] for v in VOICES}
 
-SYSTEM = (
+DEFAULT_SYSTEM = (
     "你是住在这台电脑里的本地语音助手。"
     "你在陪人说话，也帮他处理电脑上的小事。"
     "说话要短、口语、直接：一次一到两句，别列条目，别客套，别解释自己在做什么。"
     "不知道就说不知道，不要编。"
 )
+
+# 人设可以由用户在界面上改，存在项目目录里；空文件 / 没文件就用上面那段
+PERSONA_FILE = os.path.join(ROOT, "persona.txt")
+
+
+def load_persona():
+    try:
+        with open(PERSONA_FILE, encoding="utf-8") as f:
+            t = f.read().strip()
+        return t or DEFAULT_SYSTEM
+    except Exception:
+        return DEFAULT_SYSTEM
+
+
+def save_persona(text):
+    with open(PERSONA_FILE, "w", encoding="utf-8") as f:
+        f.write((text or "").strip())
+
+
+SYSTEM = DEFAULT_SYSTEM
 
 
 def log(msg):
@@ -141,6 +161,8 @@ class Handler(BaseHTTPRequestHandler):
                     self._bytes(f.read(), "image/png")
             else:
                 self._json({"error": "not found"}, 404)
+        elif path == "/api/persona":
+            self._json({"text": load_persona(), "default": DEFAULT_SYSTEM})
         elif self.path == "/api/ping":
             self._json({
                 "ok": True,
@@ -162,6 +184,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.handle_chat()
             elif self.path == "/api/tts":
                 self.handle_tts()
+            elif self.path == "/api/persona":
+                self.handle_persona()
             elif self.path == "/api/log":
                 self.handle_log()
             else:
@@ -202,7 +226,7 @@ class Handler(BaseHTTPRequestHandler):
         model = MODELS.get(key, key)
         payload = {
             "model": model,
-            "messages": [{"role": "system", "content": SYSTEM}] + messages,
+            "messages": [{"role": "system", "content": load_persona()}] + messages,
             "stream": True,
             "options": {"temperature": 0.7, "num_predict": 300},
         }
@@ -254,6 +278,12 @@ class Handler(BaseHTTPRequestHandler):
                 pass
             return True
         return False
+
+    def handle_persona(self):
+        req = json.loads(self._read_body().decode() or "{}")
+        text = (req.get("text") or "").strip()
+        save_persona(text)
+        self._json({"ok": True, "active": load_persona()})
 
     def handle_log(self):
         # 页面崩溃前留下的脚印：前端把每一步 POST 上来，崩了就靠它定位
