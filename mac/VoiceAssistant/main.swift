@@ -3,11 +3,25 @@
 
 import Cocoa
 import WebKit
-import AVFoundation
 
 let PORT = 3930
-let ROOT = ProcessInfo.processInfo.environment["VA_ROOT"]
-    ?? "/Users/jieda/Documents/deepseek-harness/default-workspace/voice-assistant"
+// 服务目录：环境变量优先；否则按 build.sh 的产出位置往上三级（.app → build → mac → 项目根）
+func findRoot() -> String {
+    let fm = FileManager.default
+    if let env = ProcessInfo.processInfo.environment["LC_ROOT"], fm.fileExists(atPath: env + "/start.sh") {
+        return env
+    }
+    var p = Bundle.main.bundlePath
+    for _ in 0..<3 { p = (p as NSString).deletingLastPathComponent }
+    if fm.fileExists(atPath: p + "/start.sh") { return p }
+    let home = fm.homeDirectoryForCurrentUser.path
+    for cand in ["/local-chatter", "/LocalChatter", "/Documents/local-chatter"] {
+        if fm.fileExists(atPath: home + cand + "/start.sh") { return home + cand }
+    }
+    return p
+}
+
+let ROOT = findRoot()
 
 // 壳自己的日志：页面崩了、麦克风授没授权，都写在这
 func appLog(_ msg: String) {
@@ -83,10 +97,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
     func applicationDidFinishLaunching(_ n: Notification) {
         buildMenu()
 
-        // 麦克风权限由 app 自己问，别指望 WebView 里那套
-        AVCaptureDevice.requestAccess(for: .audio) { granted in
-            appLog("mic-access \(granted ? "allowed" : "denied")")
-        }
         appLog("launch")
 
         let cfg = WKWebViewConfiguration()
