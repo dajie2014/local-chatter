@@ -77,6 +77,25 @@
     pointer-events: none;
   }
   #chat { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  #mask {
+    position: fixed; inset: 0; background: rgba(0,0,0,.66);
+    display: none; align-items: center; justify-content: center; z-index: 50;
+  }
+  #mask.show { display: flex; }
+  #personaBox {
+    background: #1b1b26; border: 1px solid #3a3a4c; border-radius: 18px;
+    padding: 20px 22px; width: min(760px, 88vw); box-shadow: 0 24px 70px rgba(0,0,0,.6);
+  }
+  #personaBox h2 { margin: 0 0 6px; font-size: 20px; }
+  #personaBox p { margin: 0 0 12px; font-size: 14px; color: #8b8b9a; line-height: 1.5; }
+  #personaText {
+    width: 100%; height: 230px; resize: vertical; font: inherit; font-size: 17px;
+    line-height: 1.55; padding: 12px 14px; border-radius: 12px;
+    background: #12121a; color: #e9e9ef; border: 1px solid #35354a; outline: none;
+  }
+  #personaText:focus { border-color: #3b6ef5; }
+  #personaBox .row { display: flex; gap: 10px; justify-content: flex-end; margin-top: 14px; }
+  #personaBox .row button { font-size: 17px; padding: 10px 24px; }
   #cast {
     display: flex; gap: 14px; justify-content: center; align-items: flex-start;
     padding: 6px 24px 0; overflow-x: auto;
@@ -105,6 +124,7 @@
   <select id="modelSel" title="换一个脑子">
     <option value="">（本机模型）</option>
   </select>
+  <button id="personaBtn" class="mini" title="改它的人设（它是谁、怎么说话）">✎ 人设</button>
   <button id="fresh" class="mini" title="清空这段，从头开始">＋ 新对话</button>
   <span id="status">空闲</span>
 </header>
@@ -123,7 +143,19 @@
   <button id="send">发送</button>
       <button id="stopBtn" class="ghost" disabled>■ 打断</button>
     </footer>
-    <div id="hint">打字或听写，回车发送（Shift+回车换行）。回答会边生成边念出来。</div>
+    <div id="mask">
+  <div id="personaBox">
+    <h2>它的人设</h2>
+    <p>这段字决定它「是谁、怎么说话」。改完保存，下一句就照新的来。</p>
+    <textarea id="personaText" spellcheck="false"></textarea>
+    <div class="row">
+      <button id="personaSave">保存</button>
+      <button id="personaDefault" class="ghost">用回默认</button>
+      <button id="personaClose" class="ghost">关掉</button>
+    </div>
+  </div>
+</div>
+<div id="hint">打字或听写，回车发送（Shift+回车换行）。回答会边生成边念出来。</div>
   </section>
 </div>
 
@@ -540,6 +572,47 @@ function interrupt() {
   stopBtn.disabled = true;
   setStatus('已打断');
 }
+
+// ── 改人设 ──
+const personaBtn = $('personaBtn'), maskEl = $('mask'), personaText = $('personaText');
+let defaultPersona = '';
+
+if (location.hash === '#persona') setTimeout(() => personaBtn.click(), 300);
+
+personaBtn.onclick = async () => {
+  try {
+    const r = await fetch('/api/persona');
+    const j = await r.json();
+    personaText.value = j.text || '';
+    defaultPersona = j.default || '';
+  } catch (e) {
+    personaText.value = '';
+  }
+  maskEl.classList.add('show');
+  personaText.focus();
+  plog('persona-open');
+};
+
+$('personaClose').onclick = () => maskEl.classList.remove('show');
+maskEl.onclick = (e) => { if (e.target === maskEl) maskEl.classList.remove('show'); };
+$('personaDefault').onclick = () => {
+  personaText.value = defaultPersona;
+  setStatus('已经是默认那段，记得点保存');
+};
+
+$('personaSave').onclick = async () => {
+  try {
+    await fetch('/api/persona', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: personaText.value })
+    });
+    maskEl.classList.remove('show');
+    setStatus('人设换了');
+    plog('persona-saved', personaText.value.slice(0, 60));
+  } catch (e) {
+    setStatus('存不进去：' + e.message);
+  }
+};
 
 function sendText() {
   const t = (inputEl.value || '').trim();
