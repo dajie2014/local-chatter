@@ -35,8 +35,6 @@ ollama pull qwen3:30b-a3b        # 内存大（32G+）就上这个
 - 大一些：懂得多、答得深，慢一点
 - 小一些：快，浅
 
-> 作者本机用的是 `qwen3.6-35b-a3b-q4:64k`（64G 内存的机器）。
-
 启动后，界面右上角的下拉里就是 **你这台机器上装过的全部模型**，随便换，不用改代码。
 
 ---
@@ -130,7 +128,6 @@ cd mac && ./build.sh
 
 ## 授权
 
-MIT。用吧，出问题随便改。
+MIT。
 
-九个音色和它们的肖像来自 Qwen3-TTS 自带的 CustomVoice 声库；
-肖像是用 AI 画的，放在 `characters/`。
+九个音色来自 Qwen3-TTS 自带的 CustomVoice 声库；`characters/` 里的肖像是 AI 画的。
