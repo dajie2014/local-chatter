@@ -13,8 +13,6 @@
   <key>LSMinimumSystemVersion</key>  <string>12.0</string>
   <key>NSHighResolutionCapable</key> <true/>
   <key>NSSupportsAutomaticGraphicsSwitching</key> <true/>
-  <key>NSMicrophoneUsageDescription</key>
-  <string>说话的时候要用麦克风。录音只送到这台机器上的本地服务，不出网。</string>
   <key>NSAppTransportSecurity</key>
   <dict>
     <key>NSAllowsLocalNetworking</key><true/>
